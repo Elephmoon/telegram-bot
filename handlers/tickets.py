@@ -11,6 +11,24 @@ from .common import send_long_message
 logger = logging.getLogger(__name__)
 
 
+def _parse_due_date(value: str) -> str:
+    word = value.strip().lower()
+    today = datetime.now().date()
+
+    if word == "today":
+        return today.isoformat()
+    if word == "tomorrow":
+        return (today + timedelta(days=1)).isoformat()
+
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+
+    raise ValueError(f"Неизвестный формат даты: {value}")
+
+
 def _parse_ticket_args(text: str) -> dict:
     result = {
         "title": "",
@@ -29,22 +47,17 @@ def _parse_ticket_args(text: str) -> dict:
         result["priority"] = priority_m.group(1).lower()
         text = text[: priority_m.start()] + text[priority_m.end() :]
 
-    due_m = re.search(r"-d\s+(\d{4}-\d{2}-\d{2})", text)
+    due_m = re.search(
+        r"-d\s+(today|tomorrow|\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4}|\d{2}/\d{2}/\d{4})",
+        text,
+        re.IGNORECASE,
+    )
     if due_m:
-        result["due_date"] = due_m.group(1)
+        try:
+            result["due_date"] = _parse_due_date(due_m.group(1))
+        except ValueError:
+            logger.warning("Не удалось распарсить дату: %s", due_m.group(1))
         text = text[: due_m.start()] + text[due_m.end() :]
-
-    due_rel = re.search(r"-d\s+(today|tomorrow|week)", text, re.IGNORECASE)
-    if due_rel:
-        word = due_rel.group(1).lower()
-        today = datetime.now().date()
-        if word == "today":
-            result["due_date"] = today.isoformat()
-        elif word == "tomorrow":
-            result["due_date"] = (today + timedelta(days=1)).isoformat()
-        elif word == "week":
-            result["due_date"] = (today + timedelta(days=7)).isoformat()
-        text = text[: due_rel.start()] + text[due_rel.end() :]
 
     tags_m = re.search(r"-t\s+([\w,\s]+?)(?:\s+-|$)", text)
     if tags_m:
@@ -69,12 +82,12 @@ async def ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Использование:\n"
             "`/ticket Заголовок задачи`\n"
             "`/ticket Описание -p high -d 2024-12-31 -t tag1,tag2`\n"
-            "`/ticket Задача -d tomorrow -- описание`\n\n"  # ← обновлено
+            "`/ticket Задача -d tomorrow -- описание`\n\n"
             "**Флаги:**\n"
             "• `-p` — приоритет: `low`, `medium`, `high`, `critical`\n"
-            "• `-d` — дедлайн: `2024-12-31`, `today`, `tomorrow`, `week`\n"
+            "• `-d` — дедлайн: `today`, `tomorrow`, `2024-12-31`, `31.12.2024`\n"
             "• `-t` — теги: `work,meeting`\n"
-            "• `--` — после двойного тире идёт описание",  # ← НОВОЕ
+            "• `--` — после двойного тире идёт описание",
             parse_mode="Markdown",
         )
         return
@@ -86,7 +99,7 @@ async def ticket_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ticket = vault.create_ticket(
         title=parsed["title"],
-        description=parsed["description"],  # ← НОВОЕ
+        description=parsed["description"],
         priority=parsed["priority"],
         due_date=parsed["due_date"],
         tags=parsed["tags"],
