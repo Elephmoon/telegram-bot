@@ -1,0 +1,26 @@
+[Unit]
+Description=Telegram Bot Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/home/botuser/telegram-bot
+ExecStart=/home/botuser/telegram-bot/venv/bin/python bot.py
+Restart=always
+RestartSec=5
+
+EnvironmentFile=/home/botuser/telegram-bot/.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telegram-bot
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
